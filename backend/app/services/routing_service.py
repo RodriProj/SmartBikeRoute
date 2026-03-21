@@ -2,6 +2,10 @@ import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from app.core.config import DB
+from app.services.scoring_service import (
+    calculate_estimated_time,
+    calculate_distance_difference,
+)
 
 
 def get_conn():
@@ -53,9 +57,13 @@ def calculate_route(startLat: float, startLon: float, endLat: float, endLon: flo
             "type": "FeatureCollection",
             "features": [],
             "summary": {
-                "distance_m": 0
+                "distance_m": 0,
+                "distance_km": 0
             }
         }
+
+    distance_m = round(row["length_m"], 2)
+    distance_km = round(distance_m / 1000, 2)
 
     return {
         "type": "FeatureCollection",
@@ -67,7 +75,8 @@ def calculate_route(startLat: float, startLon: float, endLat: float, endLon: flo
             }
         ],
         "summary": {
-            "distance_m": round(row["length_m"], 2)
+            "distance_m": distance_m,
+            "distance_km": distance_km
         }
     }
 
@@ -80,18 +89,19 @@ def generate_personalized_route(request, profile_weights):
         endLon=request.endLon
     )
 
-    estimated_time_min = None
-    distance_m = route_geojson.get("summary", {}).get("distance_m", 0)
+    route_summary = route_geojson.get("summary", {})
+    distance_m = route_summary.get("distance_m", 0)
+    distance_km = route_summary.get("distance_km", 0)
 
-    if distance_m > 0:
-        speed_kmh_by_profile = {
-            "lazer": 12,
-            "exercicio": 20,
-            "competicao": 28
-        }
+    estimated_time_min = calculate_estimated_time(
+        distance_km=distance_km,
+        profile_type=request.profile_type
+    )
 
-        speed_kmh = speed_kmh_by_profile.get(request.profile_type, 15)
-        estimated_time_min = round((distance_m / 1000) / speed_kmh * 60)
+    distance_difference_km = calculate_distance_difference(
+        actual_distance_km=distance_km,
+        target_distance_km=request.target_distance_km
+    )
 
     return {
         "profile_type": request.profile_type,
@@ -106,7 +116,10 @@ def generate_personalized_route(request, profile_weights):
         "applied_weights": profile_weights,
         "route_summary": {
             "distance_m": distance_m,
-            "estimated_time_min": estimated_time_min
+            "distance_km": distance_km,
+            "estimated_time_min": estimated_time_min,
+            "target_distance_km": request.target_distance_km,
+            "distance_difference_km": distance_difference_km
         },
         "route": route_geojson
     }
