@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartBikeRoutes Debug Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    #controls {
+      padding: 12px;
+      background: #f5f5f5;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 8px;
+    }
+
+    #map {
+      height: calc(100vh - 250px);
+    }
+
+    input, select, button {
+      padding: 8px;
+      font-size: 14px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    #summary {
+      padding: 10px 12px;
+      background: #ffffff;
+      border-top: 1px solid #ddd;
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input id="apiBase" class="full" type="text" value="https://chemic-quiana-overhomely.ngrok-free.dev" placeholder="API Base URL" />
+
+    <input id="startLat" type="text" value="41.2952" placeholder="Start Lat" />
+    <input id="startLon" type="text" value="-7.7460" placeholder="Start Lon" />
+    <input id="endLat" type="text" value="41.3005" placeholder="End Lat" />
+    <input id="endLon" type="text" value="-7.7398" placeholder="End Lon" />
+
+    <select id="profileType">
+      <option value="lazer">lazer</option>
+      <option value="exercicio">exercicio</option>
+      <option value="competicao">competicao</option>
+    </select>
+
+    <input id="targetDistance" type="text" value="5" placeholder="Target Distance (km)" />
+
+    <select id="elevationPreference">
+      <option value="baixa">baixa</option>
+      <option value="media">media</option>
+      <option value="alta">alta</option>
+    </select>
+
+    <select id="scenicPreference">
+      <option value="baixa">baixa</option>
+      <option value="media">media</option>
+      <option value="alta" selected>alta</option>
+    </select>
+
+    <select id="trafficAvoidance">
+      <option value="baixa">baixa</option>
+      <option value="media">media</option>
+      <option value="alta" selected>alta</option>
+    </select>
+
+    <select id="loop">
+      <option value="false" selected>false</option>
+      <option value="true">true</option>
+    </select>
+
+    <button class="full" onclick="loadSimpleRoute()">Testar rota simples</button>
+    <button class="full" onclick="loadPersonalizedRoute()">Testar rota personalizada</button>
+  </div>
+
+  <div id="summary">Sem rota carregada.</div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([41.2952, -7.7460], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let routeLayer = null;
+
+    function getApiBase() {
+      return document.getElementById('apiBase').value.trim();
+    }
+
+    function parseNumber(value) {
+      return parseFloat(String(value).replace(',', '.'));
+    }
+
+    function clearRoute() {
+      if (routeLayer) {
+        map.removeLayer(routeLayer);
+        routeLayer = null;
+      }
+    }
+
+    function setSummary(text) {
+      document.getElementById('summary').innerText = text;
+    }
+
+    function drawGeoJSON(geojson) {
+      clearRoute();
+
+      if (!geojson || !geojson.features || geojson.features.length === 0) {
+        setSummary('Nenhuma rota devolvida pela API.');
+        return false;
+      }
+
+      routeLayer = L.geoJSON(geojson).addTo(map);
+
+      const bounds = routeLayer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [20, 20] });
+      }
+
+      return true;
+    }
+
+    function getInputs() {
+      return {
+        startLat: parseNumber(document.getElementById('startLat').value),
+        startLon: parseNumber(document.getElementById('startLon').value),
+        endLat: parseNumber(document.getElementById('endLat').value),
+        endLon: parseNumber(document.getElementById('endLon').value),
+        profile_type: document.getElementById('profileType').value,
+        target_distance_km: parseNumber(document.getElementById('targetDistance').value),
+        elevation_preference: document.getElementById('elevationPreference').value,
+        scenic_preference: document.getElementById('scenicPreference').value,
+        traffic_avoidance: document.getElementById('trafficAvoidance').value,
+        loop: document.getElementById('loop').value === "true",
+        training_goal: null
+      };
+    }
+
+    function validateInputs(data) {
+      return ![
+        data.startLat,
+        data.startLon,
+        data.endLat,
+        data.endLon
+      ].some(Number.isNaN);
+    }
+
+    async function safeFetch(url, options = {}) {
+      const defaultHeaders = {
+        'ngrok-skip-browser-warning': 'true'
+      };
+
+      const mergedOptions = {
+        ...options,
+        headers: {
+          ...defaultHeaders,
+          ...(options.headers || {})
+        }
+      };
+
+      const response = await fetch(url, mergedOptions);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status} - ${text}`);
+      }
+
+      return response;
+    }
+
+    async function loadSimpleRoute() {
+      try {
+        const apiBase = getApiBase();
+        const data = getInputs();
+
+        if (!apiBase) {
+          setSummary('Define a API Base URL.');
+          return;
+        }
+
+        if (!validateInputs(data)) {
+          setSummary('Coordenadas inválidas. Usa ponto ou vírgula corretamente.');
+          return;
+        }
+
+        const url = `${apiBase}/route?startLat=${data.startLat}&startLon=${data.startLon}&endLat=${data.endLat}&endLon=${data.endLon}`;
+
+        const response = await safeFetch(url);
+        const geojson = await response.json();
+
+        const drawn = drawGeoJSON(geojson);
+        if (drawn) {
+          setSummary('Rota simples carregada com sucesso.');
+        }
+      } catch (error) {
+        setSummary(`Erro ao carregar rota simples: ${error.message}`);
+        console.error(error);
+      }
+    }
+
+    async function loadPersonalizedRoute() {
+      try {
+        const apiBase = getApiBase();
+        const data = getInputs();
+
+        if (!apiBase) {
+          setSummary('Define a API Base URL.');
+          return;
+        }
+
+        if (!validateInputs(data)) {
+          setSummary('Coordenadas inválidas. Usa ponto ou vírgula corretamente.');
+          return;
+        }
+
+        const response = await safeFetch(`${apiBase}/routes/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        const drawn = drawGeoJSON(result.route);
+        const summary = result.route_summary || {};
+
+        if (drawn) {
+          setSummary(
+            `Perfil: ${result.profile_type}
+Distância: ${summary.distance_km ?? '-'} km
+Tempo estimado: ${summary.estimated_time_min ?? '-'} min
+Distância alvo: ${summary.target_distance_km ?? '-'} km
+Diferença: ${summary.distance_difference_km ?? '-'} km`
+          );
+        }
+      } catch (error) {
+        setSummary(`Erro ao carregar rota personalizada: ${error.message}`);
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>
