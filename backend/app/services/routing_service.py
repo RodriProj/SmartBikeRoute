@@ -1,11 +1,13 @@
 import json
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.core.config import DB
+from app.services.edge_cost_service import build_cost_query
 from app.services.scoring_service import (
-    calculate_estimated_time,
     calculate_distance_difference,
+    calculate_estimated_time,
 )
 
 
@@ -13,163 +15,22 @@ def get_conn():
     return psycopg2.connect(**DB)
 
 
-def build_cost_query(profile_type: str) -> tuple[str, str]:
-    """
-    Constrói a query SQL de custo por aresta consoante o perfil.
-    Devolve:
-    - SQL string para o pgr_dijkstra
-    - nome da estratégia usada
-    """
-
-    if profile_type == "lazer":
-        return (
-            """
-            SELECT
-                gid AS id,
-                source,
-                target,
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'residential', 'living_street', 'pedestrian', 'path') THEN 0.6
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 3.0
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 10.0
-                        WHEN osm_tag_key = 'cycleway' AND osm_tag_value IN ('lane', 'track', 'opposite_lane', 'opposite_track') THEN 0.5
-                        ELSE 1.2
-                      END
-                ) / GREATEST(priority, 0.1) AS cost,
-
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'residential', 'living_street', 'pedestrian', 'path') THEN 0.6
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 3.0
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 10.0
-                        WHEN osm_tag_key = 'cycleway' AND osm_tag_value IN ('lane', 'track', 'opposite_lane', 'opposite_track') THEN 0.5
-                        ELSE 1.2
-                      END
-                ) / GREATEST(priority, 0.1) AS reverse_cost
-            FROM ways
-            """,
-            "lazer_prioriza_vias_calmas_e_ciclaveis",
-        )
-
-    if profile_type == "competicao":
-        return (
-            """
-            SELECT
-                gid AS id,
-                source,
-                target,
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link') THEN 0.7
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'pedestrian', 'path') THEN 1.4
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 5.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(maxspeed_forward, 10) AS cost,
-
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link') THEN 0.7
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'pedestrian', 'path') THEN 1.4
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 5.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(maxspeed_backward, 10) AS reverse_cost
-            FROM ways
-            """,
-            "competicao_prioriza_fluidez_e_velocidade",
-        )
-
-    return (
-        """
-        SELECT
-            gid AS id,
-            source,
-            target,
-            (
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'path', 'track') THEN 0.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 8.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(priority, 0.1)
-            ) * 0.6
-            +
-            (
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'path', 'track') THEN 0.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 8.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(maxspeed_forward, 10)
-            ) * 0.4 AS cost,
-
-            (
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'path', 'track') THEN 0.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 8.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(priority, 0.1)
-            ) * 0.6
-            +
-            (
-                (
-                    length_m
-                    * CASE
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('cycleway', 'path', 'track') THEN 0.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('residential', 'living_street', 'tertiary', 'tertiary_link') THEN 0.9
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('secondary', 'secondary_link') THEN 1.2
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('primary', 'primary_link') THEN 1.8
-                        WHEN osm_tag_key = 'highway' AND osm_tag_value IN ('motorway', 'motorway_link') THEN 8.0
-                        ELSE 1.0
-                      END
-                ) / GREATEST(maxspeed_backward, 10)
-            ) * 0.4 AS reverse_cost
-        FROM ways
-        """,
-        "exercicio_equilibra_conforto_e_desempenho",
-    )
-
-
 def calculate_route(
     startLat: float,
     startLon: float,
     endLat: float,
     endLon: float,
-    profile_type: str = "lazer",
-):
+    profile_type: str,
+    session_profile: dict,
+) -> dict:
     """
-    Calcula uma rota entre dois pontos usando um modelo de custo
-    adaptado ao perfil do utilizador.
+    Calcula uma rota entre dois pontos usando um modelo de custo adaptado
+    ao perfil principal e às preferências da sessão.
     """
-    cost_query, routing_strategy_used = build_cost_query(profile_type)
+    cost_query, routing_strategy_used = build_cost_query(
+        profile_type=profile_type,
+        session_profile=session_profile,
+    )
 
     q = """
     WITH
@@ -241,10 +102,10 @@ def calculate_route(
     }
 
 
-def generate_personalized_route(request, session_profile):
+def generate_personalized_route(request, session_profile: dict) -> dict:
     """
-    Gera uma rota personalizada com base no perfil selecionado
-    e nas preferências avançadas da sessão.
+    Gera uma rota personalizada com base no perfil selecionado e no perfil
+    final da sessão já ajustado pelas preferências avançadas.
     """
     route_geojson = calculate_route(
         startLat=request.startLat,
@@ -252,6 +113,7 @@ def generate_personalized_route(request, session_profile):
         endLat=request.endLat,
         endLon=request.endLon,
         profile_type=request.profile_type,
+        session_profile=session_profile,
     )
 
     route_summary = route_geojson.get("summary", {})
@@ -274,10 +136,15 @@ def generate_personalized_route(request, session_profile):
         "session_profile": session_profile,
         "preferences": {
             "target_distance_km": request.target_distance_km,
+            "loop": request.loop,
             "elevation_preference": request.elevation_preference,
             "scenic_preference": request.scenic_preference,
             "traffic_avoidance": request.traffic_avoidance,
-            "loop": request.loop,
+            "difficulty_level": request.difficulty_level,
+            "points_of_interest_preference": request.points_of_interest_preference,
+            "environment_preference": request.environment_preference,
+            "surface_preference": request.surface_preference,
+            "green_area_preference": request.green_area_preference,
             "training_goal": request.training_goal,
         },
         "route_summary": {

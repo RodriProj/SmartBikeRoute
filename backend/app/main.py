@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from app.services.routing_service import calculate_route, generate_personalized_route
+
 from app.models.route_generation import RouteGenerationRequest
 from app.services.profile_service import build_session_profile
+from app.services.routing_service import calculate_route, generate_personalized_route
 
 app = FastAPI()
 
@@ -30,12 +31,21 @@ def route(
     endLat: float = Query(...),
     endLon: float = Query(...),
 ):
+    session_profile = {
+        "environment_preference": "mista",
+        "surface_preference": "indiferente",
+        "green_area": 0.0,
+        "points_of_interest": 0.0,
+        "difficulty_penalty": 0.0,
+    }
+
     return calculate_route(
         startLat=startLat,
         startLon=startLon,
         endLat=endLat,
         endLon=endLon,
         profile_type="lazer",
+        session_profile=session_profile,
     )
 
 
