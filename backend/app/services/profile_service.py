@@ -3,12 +3,6 @@ from copy import deepcopy
 from app.core.weights import PROFILE_WEIGHTS
 
 
-PREFERENCE_BONUS_MAP = {
-    "baixa": -0.10,
-    "media": 0.00,
-    "alta": 0.10,
-}
-
 SCENIC_ADJUSTMENT_MAP = {
     "baixa": -0.10,
     "media": 0.00,
@@ -25,6 +19,18 @@ ELEVATION_ADJUSTMENT_MAP = {
     "baixa": -0.15,
     "media": 0.00,
     "alta": 0.15,
+}
+
+INTENSITY_ADJUSTMENT_MAP = {
+    "baixa": -0.05,
+    "media": 0.00,
+    "alta": 0.10,
+}
+
+ROUTE_FLUENCY_MAP = {
+    "baixa": 0.05,
+    "media": 0.15,
+    "alta": 0.30,
 }
 
 DIFFICULTY_PENALTY_MAP = {
@@ -50,25 +56,21 @@ def _adjust_weight(weights: dict, key: str, delta: float) -> None:
     """
     Ajusta um peso numérico sem permitir valores negativos.
     """
-    current_value = weights.get(key, 0)
-    weights[key] = max(0, current_value + delta)
+    current_value = weights.get(key, 0.0)
+    weights[key] = max(0.0, current_value + delta)
 
 
 def _set_weight_from_map(weights: dict, key: str, selected_value: str, mapping: dict) -> None:
     """
     Define diretamente um peso/penalização com base num mapa de valores.
     """
-    weights[key] = mapping.get(selected_value, weights.get(key, 0))
+    weights[key] = mapping.get(selected_value, weights.get(key, 0.0))
 
 
-def build_session_profile(request) -> dict:
+def _apply_common_preferences(weights: dict, request) -> None:
     """
-    Constrói o perfil final da sessão a partir do perfil base selecionado
-    pelo utilizador e das preferências avançadas do pedido.
+    Aplica preferências transversais comuns aos 3 modos.
     """
-    weights = deepcopy(PROFILE_WEIGHTS.get(request.profile_type, {}))
-
-    # Ajustes principais de preferência
     _adjust_weight(
         weights=weights,
         key="scenic",
@@ -87,7 +89,16 @@ def build_session_profile(request) -> dict:
         delta=ELEVATION_ADJUSTMENT_MAP.get(request.elevation_preference, 0.0),
     )
 
-    # Preferências específicas do modo lazer
+    weights["environment_preference"] = request.environment_preference
+    weights["surface_preference"] = request.surface_preference
+    weights["target_distance_km"] = request.target_distance_km
+    weights["loop"] = request.loop
+
+
+def _apply_leisure_preferences(weights: dict, request) -> None:
+    """
+    Aplica regras específicas do modo lazer.
+    """
     _set_weight_from_map(
         weights=weights,
         key="difficulty_penalty",
@@ -109,13 +120,99 @@ def build_session_profile(request) -> dict:
         mapping=GREEN_AREA_MAP,
     )
 
-    # Preferências categóricas que serão usadas mais tarde na lógica de custo
-    weights["environment_preference"] = request.environment_preference
-    weights["surface_preference"] = request.surface_preference
 
-    # Regras adicionais por objetivo de treino
-    if request.training_goal == "muscle_gain":
-        _adjust_weight(weights, "elevation", 0.15)
+def _apply_exercise_preferences(weights: dict, request) -> None:
+    """
+    Aplica regras específicas do modo exercício.
+    """
+    _adjust_weight(
+        weights=weights,
+        key="effort",
+        delta=INTENSITY_ADJUSTMENT_MAP.get(request.intensity_preference, 0.0),
+    )
+
+    if request.training_goal == "queimar_gordura":
+        _adjust_weight(weights, "distance_fit", 0.10)
+        _adjust_weight(weights, "traffic_avoidance", 0.05)
+        _adjust_weight(weights, "elevation", -0.05)
+
+    elif request.training_goal == "ganhar_resistencia":
+        _adjust_weight(weights, "distance_fit", 0.15)
         _adjust_weight(weights, "effort", 0.10)
+
+    elif request.training_goal == "trabalhar_musculo":
+        _adjust_weight(weights, "elevation", 0.20)
+        _adjust_weight(weights, "effort", 0.15)
+
+    elif request.training_goal == "recuperacao_ativa":
+        _adjust_weight(weights, "traffic_avoidance", 0.10)
+        _adjust_weight(weights, "scenic", 0.05)
+        _adjust_weight(weights, "elevation", -0.15)
+        weights["difficulty_penalty"] = 0.30
+
+    elif request.training_goal == "treino_misto":
+        _adjust_weight(weights, "distance_fit", 0.05)
+        _adjust_weight(weights, "effort", 0.05)
+        _adjust_weight(weights, "elevation", 0.05)
+
+
+def _apply_competition_preferences(weights: dict, request) -> None:
+    """
+    Aplica regras específicas do modo competição.
+    """
+    _adjust_weight(
+        weights=weights,
+        key="speed",
+        delta=INTENSITY_ADJUSTMENT_MAP.get(request.intensity_preference, 0.0),
+    )
+
+    _set_weight_from_map(
+        weights=weights,
+        key="fluency",
+        selected_value=request.route_fluency,
+        mapping=ROUTE_FLUENCY_MAP,
+    )
+
+    if request.training_goal == "velocidade":
+        _adjust_weight(weights, "speed", 0.20)
+        _adjust_weight(weights, "fluency", 0.10)
+
+    elif request.training_goal == "ritmo_constante":
+        _adjust_weight(weights, "fluency", 0.20)
+        _adjust_weight(weights, "traffic_avoidance", 0.05)
+
+    elif request.training_goal == "subida":
+        _adjust_weight(weights, "elevation", 0.20)
+        _adjust_weight(weights, "speed", 0.05)
+
+    elif request.training_goal == "resistencia_competitiva":
+        _adjust_weight(weights, "distance_fit", 0.15)
+        _adjust_weight(weights, "fluency", 0.10)
+
+    elif request.training_goal == "simulacao_prova":
+        _adjust_weight(weights, "speed", 0.15)
+        _adjust_weight(weights, "fluency", 0.15)
+        _adjust_weight(weights, "distance_fit", 0.10)
+
+
+def build_session_profile(request) -> dict:
+    """
+    Constrói o perfil final da sessão a partir:
+    - do modo principal selecionado
+    - das preferências transversais
+    - das opções avançadas específicas do modo
+    """
+    weights = deepcopy(PROFILE_WEIGHTS.get(request.profile_type, {}))
+
+    _apply_common_preferences(weights, request)
+
+    if request.profile_type == "lazer":
+        _apply_leisure_preferences(weights, request)
+
+    elif request.profile_type == "exercicio":
+        _apply_exercise_preferences(weights, request)
+
+    elif request.profile_type == "competicao":
+        _apply_competition_preferences(weights, request)
 
     return weights
