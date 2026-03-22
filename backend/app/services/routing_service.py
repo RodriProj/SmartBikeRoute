@@ -12,7 +12,51 @@ def get_conn():
     return psycopg2.connect(**DB)
 
 
-def calculate_route(startLat: float, startLon: float, endLat: float, endLon: float):
+def build_cost_query(profile_type: str) -> str:
+    if profile_type == "lazer":
+        return """
+        SELECT
+            gid AS id,
+            source,
+            target,
+            (length_m / GREATEST(priority, 0.1)) AS cost,
+            (length_m / GREATEST(priority, 0.1)) AS reverse_cost
+        FROM ways
+        """
+
+    if profile_type == "competicao":
+        return """
+        SELECT
+            gid AS id,
+            source,
+            target,
+            (length_m / GREATEST(maxspeed_forward, 10)) AS cost,
+            (length_m / GREATEST(maxspeed_backward, 10)) AS reverse_cost
+        FROM ways
+        """
+
+    return """
+    SELECT
+        gid AS id,
+        source,
+        target,
+        ((length_m / GREATEST(priority, 0.1)) * 0.7 +
+         (length_m / GREATEST(maxspeed_forward, 10)) * 0.3) AS cost,
+        ((length_m / GREATEST(priority, 0.1)) * 0.7 +
+         (length_m / GREATEST(maxspeed_backward, 10)) * 0.3) AS reverse_cost
+    FROM ways
+    """
+
+
+def calculate_route(
+    startLat: float,
+    startLon: float,
+    endLat: float,
+    endLon: float,
+    profile_type: str = "lazer"
+):
+    cost_query = build_cost_query(profile_type)
+
     q = """
     WITH
     start_v AS (
@@ -29,7 +73,7 @@ def calculate_route(startLat: float, startLon: float, endLat: float, endLon: flo
     ),
     route AS (
       SELECT * FROM pgr_dijkstra(
-        'SELECT gid AS id, source, target, cost, reverse_cost FROM ways',
+        %s,
         (SELECT id FROM start_v),
         (SELECT id FROM end_v),
         directed := false
@@ -49,7 +93,7 @@ def calculate_route(startLat: float, startLon: float, endLat: float, endLon: flo
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(q, (startLon, startLat, endLon, endLat))
+            cur.execute(q, (startLon, startLat, endLon, endLat, cost_query))
             row = cur.fetchone()
 
     if not row or row["geojson"] is None:
@@ -86,7 +130,8 @@ def generate_personalized_route(request, profile_weights):
         startLat=request.startLat,
         startLon=request.startLon,
         endLat=request.endLat,
-        endLon=request.endLon
+        endLon=request.endLon,
+        profile_type=request.profile_type
     )
 
     route_summary = route_geojson.get("summary", {})

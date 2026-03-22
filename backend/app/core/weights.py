@@ -1,23 +1,29 @@
 PROFILE_WEIGHTS = {
     "lazer": {
-        "scenic": 0.30,
+        "distance_fit": 0.15,
         "safety": 0.25,
-        "traffic": 0.20,
-        "elevation": 0.10,
-        "distance": 0.15
+        "scenic": 0.25,
+        "traffic_avoidance": 0.20,
+        "surface": 0.10,
+        "elevation": 0.05
     },
     "exercicio": {
-        "scenic": 0.05,
+        "distance_fit": 0.20,
         "safety": 0.10,
-        "traffic": 0.15,
-        "elevation": 0.30,
-        "distance": 0.40
+        "scenic": 0.05,
+        "traffic_avoidance": 0.10,
+        "surface": 0.10,
+        "elevation": 0.25,
+        "effort": 0.20
     },
     "competicao": {
+        "distance_fit": 0.15,
+        "safety": 0.05,
         "scenic": 0.00,
-        "safety": 0.10,
-        "traffic": 0.20,
-        "elevation": 0.30,
-        "distance": 0.40
+        "traffic_avoidance": 0.10,
+        "surface": 0.20,
+        "elevation": 0.10,
+        "speed": 0.25,
+        "fluency": 0.15
     }
 }
