@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartBike Routes — Debug Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --accent: #1EB1FC;
+      --accent2: #2ECC71;
+      --danger: #E74C3C;
+      --warn: #F39C12;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --radius: 10px;
+      --font: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 16px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+    header span { font-size: 0.8rem; color: var(--muted); }
+
+    .base-url-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .base-url-bar label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+    .base-url-bar input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .btn-check {
+      background: var(--border);
+      color: var(--text);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .btn-check:hover { background: #444c56; }
+
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ---- sidebar ---- */
+    .sidebar {
+      width: 360px;
+      min-width: 280px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-inner { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+
+    input[type=number], input[type=text], select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      font-size: 0.85rem;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .profile-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .profile-tab {
+      padding: 8px 0;
+      text-align: center;
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+      transition: all .15s;
+      background: transparent;
+      color: var(--muted);
+    }
+    .profile-tab.active-lazer       { border-color: var(--accent2); color: var(--accent2); background: #2ecc7115; }
+    .profile-tab.active-exercicio   { border-color: var(--warn);    color: var(--warn);    background: #f39c1215; }
+    .profile-tab.active-competicao  { border-color: var(--danger);  color: var(--danger);  background: #e74c3c15; }
+    .profile-tab:hover { border-color: #444c56; color: var(--text); }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+    }
+
+    details summary {
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      user-select: none;
+      padding: 4px 0;
+    }
+    details summary:hover { color: var(--text); }
+    details[open] summary { color: var(--text); }
+    .details-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+    .checkbox-row input[type=checkbox] { width: auto; accent-color: var(--accent); }
+
+    .btn-generate {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn-generate:hover { opacity: .88; }
+    .btn-generate:disabled { opacity: .45; cursor: default; }
+
+    /* ---- summary card ---- */
+    .summary-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-size: 0.82rem;
+      display: none;
+    }
+    .summary-card.visible { display: block; }
+    .summary-card h3 { font-size: 0.85rem; margin-bottom: 8px; color: var(--accent); }
+    .summary-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--border); }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-val { font-weight: 700; color: var(--text); }
+
+    /* ---- status ---- */
+    .status {
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      font-size: 0.82rem;
+      display: none;
+    }
+    .status.visible { display: block; }
+    .status.ok  { background: #2ecc7118; border: 1px solid var(--accent2); color: var(--accent2); }
+    .status.err { background: #e74c3c18; border: 1px solid var(--danger);  color: var(--danger); }
+    .status.info { background: #1eb1fc18; border: 1px solid var(--accent);  color: var(--accent); }
+
+    /* ---- map ---- */
+    #map {
+      flex: 1;
+      z-index: 0;
+    }
+
+    /* ---- spinner ---- */
+    .spinner {
+      display: none;
+      width: 18px; height: 18px;
+      border: 3px solid #ffffff40;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      margin: 0 auto;
+    }
+    .btn-generate.loading .spinner { display: inline-block; }
+    .btn-generate.loading .btn-label { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 640px) {
+      .layout { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      #map { min-height: 340px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+    <circle cx="14" cy="14" r="13" stroke="#1EB1FC" stroke-width="2"/>
+    <path d="M8 18 L14 8 L20 18" stroke="#2ECC71" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="14" cy="8" r="2" fill="#1EB1FC"/>
+  </svg>
+  <h1>SmartBike Routes</h1>
+  <span>Debug Viewer</span>
+</header>
+
+<div class="base-url-bar">
+  <label for="baseUrl">API base URL</label>
+  <input id="baseUrl" type="text" value="http://localhost:8000" spellcheck="false" />
+  <button class="btn-check" onclick="checkHealth()">Health</button>
+</div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <!-- Status -->
+      <div id="status" class="status"></div>
+
+      <!-- Perfil -->
+      <div>
+        <div class="section-title">Perfil da rota</div>
+        <div class="profile-tabs">
+          <button class="profile-tab active-lazer" data-profile="lazer"      onclick="setProfile('lazer')">Lazer</button>
+          <button class="profile-tab"               data-profile="exercicio"  onclick="setProfile('exercicio')">Exercício</button>
+          <button class="profile-tab"               data-profile="competicao" onclick="setProfile('competicao')">Competição</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Coordenadas -->
+      <div>
+        <div class="section-title">Coordenadas</div>
+        <div class="row2">
+          <div><label>Início Lat</label><input id="startLat" type="number" step="0.0001" value="41.2952" /></div>
+          <div><label>Início Lon</label><input id="startLon" type="number" step="0.0001" value="-7.7460" /></div>
+        </div>
+        <div class="row2" style="margin-top:8px">
+          <div><label>Fim Lat</label><input id="endLat" type="number" step="0.0001" value="41.3100" /></div>
+          <div><label>Fim Lon</label><input id="endLon" type="number" step="0.0001" value="-7.7300" /></div>
+        </div>
+        <div class="checkbox-row" style="margin-top:8px">
+          <input type="checkbox" id="loop" />
+          <label for="loop" style="margin:0">Rota circular (loop)</label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Distância -->
+      <div>
+        <label>Distância pretendida (km)</label>
+        <input id="target_distance_km" type="number" step="0.5" min="0.5" max="300" value="12" />
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Preferências base -->
+      <div>
+        <div class="section-title">Preferências</div>
+        <div class="row2">
+          <div>
+            <label>Elevação</label>
+            <select id="elevation_preference">
+              <option value="baixa">Baixa</option>
+              <option value="media" selected>Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+          <div>
+            <label>Paisagem</label>
+            <select id="scenic_preference">
+              <option value="baixa">Baixa</option>
+              <option value="media" selected>Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2" style="margin-top:8px">
+          <div>
+            <label>Evitar trânsito</label>
+            <select id="traffic_avoidance">
+              <option value="baixa">Baixa</option>
+              <option value="media" selected>Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+          <div>
+            <label>Ambiente</label>
+            <select id="environment_preference">
+              <option value="urbana">Urbano</option>
+              <option value="rural">Rural</option>
+              <option value="mista" selected>Misto</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <label>Piso</label>
+          <select id="surface_preference">
+            <option value="asfalto">Asfalto</option>
+            <option value="asfalto_ecovia">Asfalto / Ecovia</option>
+            <option value="indiferente" selected>Indiferente</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Avançado -->
+      <details id="advanced-section">
+        <summary>Opções avançadas</summary>
+        <div class="details-body">
+
+          <div id="lazer-opts">
+            <div class="row2">
+              <div>
+                <label>Dificuldade</label>
+                <select id="difficulty_level">
+                  <option value="muito_facil">Muito fácil</option>
+                  <option value="facil" selected>Fácil</option>
+                  <option value="moderada">Moderada</option>
+                </select>
+              </div>
+              <div>
+                <label>Zonas verdes</label>
+                <select id="green_area_preference">
+                  <option value="baixa">Baixa</option>
+                  <option value="media" selected>Média</option>
+                  <option value="alta">Alta</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:8px">
+              <label>Pontos de interesse</label>
+              <select id="points_of_interest_preference">
+                <option value="baixa">Baixa</option>
+                <option value="media" selected>Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="ex-comp-opts" style="display:none">
+            <div class="row2">
+              <div>
+                <label>Intensidade</label>
+                <select id="intensity_preference">
+                  <option value="baixa">Baixa</option>
+                  <option value="media" selected>Média</option>
+                  <option value="alta">Alta</option>
+                </select>
+              </div>
+              <div>
+                <label>Fluidez</label>
+                <select id="route_fluency">
+                  <option value="baixa">Baixa</option>
+                  <option value="media" selected>Média</option>
+                  <option value="alta">Alta</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label>Objetivo da sessão</label>
+            <select id="training_goal">
+              <option value="">— Nenhum —</option>
+            </select>
+          </div>
+
+        </div>
+      </details>
+
+      <div class="divider"></div>
+
+      <!-- Botão -->
+      <button class="btn-generate" id="btn-gen" onclick="generateRoute()">
+        <span class="btn-label">Gerar rota</span>
+        <span class="spinner"></span>
+      </button>
+
+      <!-- Resumo -->
+      <div id="summary" class="summary-card"></div>
+
+    </div>
+  </aside>
+
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ---- State ----
+let currentProfile = 'lazer';
+let map, routeLayer, startMarker, endMarker;
+
+const EXERCISE_GOALS = [
+  { value: 'queimar_gordura',   label: 'Queimar gordura' },
+  { value: 'ganhar_resistencia',label: 'Ganhar resistência' },
+  { value: 'trabalhar_musculo', label: 'Trabalhar músculo' },
+  { value: 'recuperacao_ativa', label: 'Recuperação activa' },
+  { value: 'treino_misto',      label: 'Treino misto' },
+];
+const COMPETITION_GOALS = [
+  { value: 'velocidade',             label: 'Velocidade' },
+  { value: 'ritmo_constante',        label: 'Ritmo constante' },
+  { value: 'subida',                 label: 'Subida' },
+  { value: 'resistencia_competitiva',label: 'Resistência competitiva' },
+  { value: 'simulacao_prova',        label: 'Simulação de prova' },
+];
+const PROFILE_COLORS = { lazer: '#2ECC71', exercicio: '#F39C12', competicao: '#E74C3C' };
+
+// ---- Map init ----
+function initMap() {
+  map = L.map('map').setView([41.2952, -7.7460], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  map.on('click', function(e) {
+    const lat = e.latlng.lat.toFixed(5);
+    const lon = e.latlng.lng.toFixed(5);
+    if (!document.getElementById('startLat').value || !document.getElementById('startLon').value) {
+      setInputCoords('start', lat, lon);
+    } else {
+      setInputCoords('end', lat, lon);
+    }
+    updateMarkers();
+  });
+}
+
+function setInputCoords(which, lat, lon) {
+  document.getElementById(which + 'Lat').value = lat;
+  document.getElementById(which + 'Lon').value = lon;
+}
+
+function updateMarkers() {
+  const sLat = parseFloat(document.getElementById('startLat').value);
+  const sLon = parseFloat(document.getElementById('startLon').value);
+  const eLat = parseFloat(document.getElementById('endLat').value);
+  const eLon = parseFloat(document.getElementById('endLon').value);
+
+  if (startMarker) startMarker.remove();
+  if (!isNaN(sLat) && !isNaN(sLon)) {
+    startMarker = L.circleMarker([sLat, sLon], { radius: 9, color: '#2ECC71', fillColor: '#2ECC71', fillOpacity: 1 })
+      .addTo(map).bindTooltip('Início');
+  }
+  if (endMarker) endMarker.remove();
+  if (!isNaN(eLat) && !isNaN(eLon)) {
+    endMarker = L.circleMarker([eLat, eLon], { radius: 9, color: '#E74C3C', fillColor: '#E74C3C', fillOpacity: 1 })
+      .addTo(map).bindTooltip('Fim');
+  }
+}
+
+// ---- Profile ----
+function setProfile(p) {
+  currentProfile = p;
+  document.querySelectorAll('.profile-tab').forEach(btn => {
+    btn.className = 'profile-tab';
+    if (btn.dataset.profile === p) btn.classList.add('active-' + p);
+  });
+
+  const lazerOpts  = document.getElementById('lazer-opts');
+  const exCompOpts = document.getElementById('ex-comp-opts');
+  const goalSel    = document.getElementById('training_goal');
+
+  if (p === 'lazer') {
+    lazerOpts.style.display  = '';
+    exCompOpts.style.display = 'none';
+    populateGoals([]);
+  } else if (p === 'exercicio') {
+    lazerOpts.style.display  = 'none';
+    exCompOpts.style.display = '';
+    populateGoals(EXERCISE_GOALS);
+  } else {
+    lazerOpts.style.display  = 'none';
+    exCompOpts.style.display = '';
+    populateGoals(COMPETITION_GOALS);
+  }
+}
+
+function populateGoals(goals) {
+  const sel = document.getElementById('training_goal');
+  sel.innerHTML = '<option value="">— Nenhum —</option>';
+  goals.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g.value;
+    opt.textContent = g.label;
+    sel.appendChild(opt);
+  });
+}
+
+// ---- Health check ----
+async function checkHealth() {
+  const base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+  showStatus('info', 'A verificar…');
+  try {
+    const r = await fetch(base + '/health');
+    const d = await r.json();
+    showStatus('ok', `✓ API online — status: ${d.status}`);
+  } catch (e) {
+    showStatus('err', `✗ API inacessível: ${e.message}`);
+  }
+}
+
+// ---- Generate route ----
+async function generateRoute() {
+  const base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+  const btn  = document.getElementById('btn-gen');
+
+  const payload = {
+    startLat: parseFloat(document.getElementById('startLat').value),
+    startLon: parseFloat(document.getElementById('startLon').value),
+    endLat:   parseFloat(document.getElementById('endLat').value),
+    endLon:   parseFloat(document.getElementById('endLon').value),
+    profile_type: currentProfile,
+    target_distance_km: parseFloat(document.getElementById('target_distance_km').value) || null,
+    loop: document.getElementById('loop').checked,
+    elevation_preference:          document.getElementById('elevation_preference').value,
+    scenic_preference:             document.getElementById('scenic_preference').value,
+    traffic_avoidance:             document.getElementById('traffic_avoidance').value,
+    environment_preference:        document.getElementById('environment_preference').value,
+    surface_preference:            document.getElementById('surface_preference').value,
+    difficulty_level:              document.getElementById('difficulty_level').value,
+    points_of_interest_preference: document.getElementById('points_of_interest_preference').value,
+    green_area_preference:         document.getElementById('green_area_preference').value,
+    intensity_preference:          document.getElementById('intensity_preference').value,
+    route_fluency:                 document.getElementById('route_fluency').value,
+    training_goal: document.getElementById('training_goal').value || null,
+  };
+
+  btn.classList.add('loading');
+  btn.disabled = true;
+  showStatus('info', 'A calcular rota…');
+  hideSummary();
+
+  try {
+    const r = await fetch(base + '/routes/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await r.json();
+
+    if (!r.ok) {
+      showStatus('err', `Erro ${r.status}: ${JSON.stringify(data?.detail || data)}`);
+      return;
+    }
+
+    if (data.error) {
+      showStatus('err', data.error);
+      return;
+    }
+
+    drawRoute(data);
+    renderSummary(data.route_summary);
+    showStatus('ok', `✓ Rota gerada — ${data.route_summary?.distance_km ?? '?'} km`);
+
+  } catch (e) {
+    showStatus('err', `Falha de rede: ${e.message}`);
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+// ---- Map drawing ----
+function drawRoute(data) {
+  if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+  const features = data?.route?.features;
+  if (!features || features.length === 0) {
+    showStatus('err', 'Sem rota nos resultados.');
+    return;
+  }
+  const color = PROFILE_COLORS[currentProfile] || '#1EB1FC';
+  routeLayer = L.geoJSON(data.route, {
+    style: { color, weight: 5, opacity: 0.85 },
+  }).addTo(map);
+  map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+}
+
+// ---- Summary ----
+function renderSummary(s) {
+  if (!s) return;
+  const card = document.getElementById('summary');
+  card.innerHTML = `
+    <h3>Resumo da rota</h3>
+    ${row('Distância', (s.distance_km ?? '—') + ' km')}
+    ${row('Tempo estimado', s.estimated_time_min != null ? s.estimated_time_min + ' min' : '—')}
+    ${row('Distância-alvo', s.target_distance_km != null ? s.target_distance_km + ' km' : '—')}
+    ${row('Diferença', s.distance_difference_km != null ? (s.distance_difference_km > 0 ? '+' : '') + s.distance_difference_km + ' km' : '—')}
+    ${row('Estratégia', s.routing_strategy_used ?? '—')}
+  `;
+  card.classList.add('visible');
+}
+
+function hideSummary() {
+  const card = document.getElementById('summary');
+  card.classList.remove('visible');
+  card.innerHTML = '';
+}
+
+function row(label, val) {
+  return `<div class="summary-row"><span>${label}</span><span class="summary-val">${val}</span></div>`;
+}
+
+// ---- Status ----
+function showStatus(type, msg) {
+  const el = document.getElementById('status');
+  el.className = `status visible ${type}`;
+  el.textContent = msg;
+}
+
+// ---- Init ----
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  setProfile('lazer');
+  updateMarkers();
+
+  ['startLat','startLon','endLat','endLon'].forEach(id => {
+    document.getElementById(id).addEventListener('change', updateMarkers);
+  });
+});
+</script>
+</body>
+</html>

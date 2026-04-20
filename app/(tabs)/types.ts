@@ -64,7 +64,12 @@ export interface RouteGeometryMultiLineString {
   coordinates: [number, number][][];
 }
 
-export type RouteGeometry = RouteGeometryLineString | RouteGeometryMultiLineString;
+export interface RouteGeometryCollection {
+  type: 'GeometryCollection';
+  geometries: Array<RouteGeometryLineString | RouteGeometryMultiLineString>;
+}
+
+export type RouteGeometry = RouteGeometryLineString | RouteGeometryMultiLineString | RouteGeometryCollection;
 
 export interface BackendRouteResponse {
   profile_type: ProfileType;

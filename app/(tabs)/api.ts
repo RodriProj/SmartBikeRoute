@@ -8,7 +8,7 @@ import {
     RouteFormState,
 } from './types';
 
-export const API_BASE = 'https://chemic-quiana-overhomely.ngrok-free.dev';
+export const API_BASE = 'http://192.168.1.128:8000';
 
 export const INITIAL_REGION = {
   latitude: 41.2952,
@@ -58,24 +58,40 @@ export async function generatePersonalizedRoute(
     endLon: number;
   } & RouteFormState,
 ): Promise<BackendRouteResponse> {
-  const response = await fetch(`${API_BASE}/routes/generate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'ngrok-skip-browser-warning': 'true',
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `Erro ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE}/routes/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Erro ${response.status}`);
+    }
+
+    return response.json();
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('O pedido demorou demasiado. Verifica a ligação ao servidor.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return response.json();
 }
 
-export async function searchLocation(query: string): Promise<LocationSearchResult[]> {
+export async function searchLocation(
+  query: string,
+  userLocation?: { latitude: number; longitude: number },
+): Promise<LocationSearchResult[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
 
@@ -106,8 +122,15 @@ export async function searchLocation(query: string): Promise<LocationSearchResul
     // fallback
   }
 
+  // Se temos localização do utilizador, usamos como centro de bias
+  // bounded=0 prioriza mas não exclui resultados fora da área
+  const lat = userLocation?.latitude ?? INITIAL_REGION.latitude;
+  const lon = userLocation?.longitude ?? INITIAL_REGION.longitude;
+  const delta = 0.5; // ~50km de raio
+  const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+
   const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(trimmed)}`,
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=pt&viewbox=${viewbox}&bounded=0&q=${encodeURIComponent(trimmed)}`,
     {
       headers: {
         Accept: 'application/json',
@@ -189,6 +212,20 @@ export function normalizeRouteCoordinates(result: BackendRouteResponse): Coords[
         longitude: lon,
       })),
     );
+  }
+
+  if (geometry.type === 'GeometryCollection') {
+    return geometry.geometries.flatMap((geom: any) => {
+      if (geom.type === 'LineString') {
+        return geom.coordinates.map(([lon, lat]: number[]) => ({ latitude: lat, longitude: lon }));
+      }
+      if (geom.type === 'MultiLineString') {
+        return geom.coordinates.flatMap((line: number[][]) =>
+          line.map(([lon, lat]) => ({ latitude: lat, longitude: lon })),
+        );
+      }
+      return [];
+    });
   }
 
   return [];
